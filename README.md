@@ -68,8 +68,6 @@ func main() {
 }
 ```
 
-## Additional Features
-
 ### Typed Publish Methods
 
 ```go
