@@ -2,7 +2,6 @@
 
 [![CI](https://github.com/levifitzpatrick1/go-nt4/actions/workflows/ci.yaml/badge.svg)](https://github.com/levifitzpatrick1/go-nt4/actions/workflows/ci.yaml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/levifitzpatrick1/go-nt4.svg)](https://pkg.go.dev/github.com/levifitzpatrick1/go-nt4)
-[![Go Report Card](https://goreportcard.com/badge/github.com/levifitzpatrick1/go-nt4)](https://goreportcard.com/report/github.com/levifitzpatrick1/go-nt4)
 
 Go implementation of the WPILib NT4 protocol.
 
