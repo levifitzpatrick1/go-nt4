@@ -2,65 +2,65 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
+	"os/signal"
+	"syscall"
 	"time"
 
-	"github.com/levifitzpatrick1/go-nt4"
+	nt4 "github.com/levifitzpatrick1/go-nt4"
 )
 
-func main() {
-	// Create client options for team 2064
-	// Use "127.0.0.1" for simulation or nt4.TeamNumberToAddress(2064) for real robot
-	opts := nt4.DefaultClientOptions("127.0.0.1") // Simulation
-	// opts := nt4.DefaultClientOptions(nt4.TeamNumberToAddress(2064)) // Real robot: 10.20.64.2
-
-	client := nt4.NewClient(opts)
-
-	// Connect with retry (30 second timeout)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	fmt.Println("Connecting to NT4 server...")
-	if err := client.ConnectWithRetry(ctx); err != nil {
-		log.Fatal("Failed to connect:", err)
+func run(ctx context.Context) error {
+	// Connect to local simulation, or use .Team(2064) for a real roboRIO.
+	c, err := nt4.NewClientBuilder().
+		Server("127.0.0.1").
+		Name("publisher-example").
+		Build()
+	if err != nil {
+		return err
 	}
-	defer client.Disconnect()
-
-	fmt.Println("Connected! Publishing data...")
-
-	// Publish different types of topics
-	speedTopic := client.PublishDouble("/robot/speed", 0.0)
-	enabledTopic := client.PublishBoolean("/robot/enabled", false)
-	positionTopic := client.PublishDoubleArray("/robot/position", []float64{0.0, 0.0, 0.0})
-
-	// Publish values every second
-	ticker := time.NewTicker(1 * time.Second)
+	defer c.Close()
+	speed, err := c.Publish("/robot/speed", nt4.TypeDouble, nil, nt4.PublisherOptions{})
+	if err != nil {
+		return err
+	}
+	defer speed.Close()
+	enabled, err := c.Publish("/robot/enabled", nt4.TypeBoolean, nil, nt4.PublisherOptions{})
+	if err != nil {
+		return err
+	}
+	defer enabled.Close()
+	position, err := c.Publish("/robot/position", nt4.TypeDoubleArray, nil, nt4.PublisherOptions{})
+	if err != nil {
+		return err
+	}
+	defer position.Close()
+	if err := c.Start(ctx); err != nil {
+		return err
+	}
+	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
-
-	counter := 0
-	for {
+	for i := 0; ; i++ {
 		select {
-		case <-ticker.C:
-			counter++
-
-			// Update values
-			speed := float64(counter % 100)
-			enabled := counter%2 == 0
-
-			client.SetValue(speedTopic, speed)
-			client.SetValue(enabledTopic, enabled)
-			client.SetValue(positionTopic, []float64{
-				float64(counter),
-				float64(counter * 2),
-				float64(counter * 3),
-			})
-
-			fmt.Printf("[%d] Published: speed=%.1f, enabled=%v\n", counter, speed, enabled)
-
 		case <-ctx.Done():
-			fmt.Println("Shutting down...")
-			return
+			return nil
+		case <-ticker.C:
+			if err := speed.Set(float64(i)); err != nil {
+				return err
+			}
+			if err := enabled.Set(i%2 == 0); err != nil {
+				return err
+			}
+			if err := position.Set([]float64{float64(i), 0, 0}); err != nil {
+				return err
+			}
 		}
+	}
+}
+func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	if err := run(ctx); err != nil {
+		log.Fatal(err)
 	}
 }

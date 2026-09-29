@@ -1,68 +1,39 @@
 name: CI
-
 on:
   push:
     branches: [Trunk]
   pull_request:
     branches: [Trunk]
-
+env:
+  GOTOOLCHAIN: local
 jobs:
   test:
-    name: Test
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        go-version: ["1.23", "1.24", "1.25"]
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
         with:
-          go-version: ${{ matrix.go-version }}
-
-      - name: Download dependencies
-        run: go mod download
-
-      - name: Verify dependencies
-        run: go mod verify
-
-      - name: Run go vet
-        run: go vet ./...
-
-      - name: Run tests
-        run: go test -v -race -coverprofile=coverage.out .
-
-      - name: Upload coverage to Codecov
-        if: matrix.go-version == '1.25'
-        uses: codecov/codecov-action@v4
-        with:
-          file: ./coverage.out
-          flags: unittests
-          fail_ci_if_error: false
-
-  build:
-    name: Build
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.25"
-
-      - name: Build
-        run: go build -v ./...
-
-      - name: Build examples
+          go-version: '1.27.1' # go.dev/dl/?mode=json stable, verified 2026-09-25
+      - run: go mod download && go mod verify
+      - run: test -z "$(gofmt -l .)"
+      - run: go vet ./...
+      - run: go test -count=1 -timeout=120s ./...
+      - run: go test -race -count=2 -timeout=180s ./...
+      - run: go build ./examples/...
+      - name: Bounded fuzz smoke (individual targets)
         run: |
-          cd examples/publisher && go build
-          cd ../subscriber && go build
-          cd ../subscriber_callback && go build
-          cd ../bidirectional && go build
-          cd ../team_robot && go build
+          for target in FuzzControlBatch FuzzOfflineTransitions; do go test . -run '^$' -fuzz "^$target$" -fuzztime=2s -parallel=2 -timeout=30s; done
+          for target in FuzzDecodeFrames FuzzEncodeValue; do go test ./internal/wire -run '^$' -fuzz "^$target$" -fuzztime=2s -parallel=2 -timeout=30s; done
+      - name: Linux ARM64 cross-build (not target execution)
+        run: GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build ./...
+  native-ntcore:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.1'
+      - run: python3 -m venv .ntcore-venv && .ntcore-venv/bin/python -m pip install 'pyntcore==2026.2.2'
+      - run: NT4_INTEROP_PYTHON="$PWD/.ntcore-venv/bin/python" scripts/interop/run.sh
+  # Actual Orange Pi 5 runtime tests are a separate external release gate.
+  # See docs/TARGET_VALIDATION.md; cross-compilation cannot satisfy it.

@@ -4,91 +4,64 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"github.com/levifitzpatrick1/go-nt4"
+	nt4 "github.com/levifitzpatrick1/go-nt4"
 )
 
-func main() {
-	// Create client options for team 2064
-	// Use "127.0.0.1" for simulation or nt4.TeamNumberToAddress(2064) for real robot
-	opts := nt4.DefaultClientOptions("127.0.0.1") // Simulation
-	// opts := nt4.DefaultClientOptions(nt4.TeamNumberToAddress(2064)) // Real robot: 10.20.64.2
-
-	// Add connection callbacks
-	opts.OnConnect = func() {
-		fmt.Println("Connected to server")
+func run(ctx context.Context) error {
+	c, err := nt4.NewClient(nt4.ClientOptions{})
+	if err != nil {
+		return err
 	}
-	opts.OnDisconnect = func() {
-		fmt.Println("Disconnected from server")
+	defer c.Close()
+	p, err := c.Publish("/sensors/temperature", nt4.TypeDouble, nil, nt4.PublisherOptions{})
+	if err != nil {
+		return err
 	}
-
-	client := nt4.NewClient(opts)
-
-	// Connect with retry (30 second timeout)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	fmt.Println("Connecting to NT4 server...")
-	if err := client.ConnectWithRetry(ctx); err != nil {
-		log.Fatal("Failed to connect:", err)
+	defer p.Close()
+	status, err := c.Publish("/sensors/status", nt4.TypeString, nil, nt4.PublisherOptions{})
+	if err != nil {
+		return err
 	}
-	defer client.Disconnect()
-
-	// Publish our own topics
-	fmt.Println("Publishing topics...")
-	temperatureTopic := client.PublishDouble("/sensors/temperature", 20.0)
-	statusTopic := client.PublishString("/sensors/status", "OK")
-
-	// Subscribe to all topics to see what else is being published
-	fmt.Println("Subscribing to all topics...")
-	sub := client.Subscribe([]string{""}, &nt4.SubscribeOptions{
-		Prefix: true,
-		All:    true,
-	})
-	defer client.Unsubscribe(sub)
-
-	// Handle updates from other sources
-	go func() {
-		for update := range sub.Updates() {
-			// Don't print our own topics to avoid spam
-			if update.Topic.Name != "/sensors/temperature" &&
-				update.Topic.Name != "/sensors/status" {
-				fmt.Printf("[RECEIVED] %s = %v\n", update.Topic.Name, update.Value)
-			}
-		}
-	}()
-
-	// Publish sensor data every 3 seconds
+	defer status.Close()
+	sub, err := c.Subscribe([]string{"/sensors/"}, nt4.SubscriptionOptions{Prefix: true, BufferCapacity: 128, BufferMaxBytes: 1 << 16})
+	if err != nil {
+		return err
+	}
+	defer sub.Close()
+	if err := c.Start(ctx); err != nil {
+		return err
+	}
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
-
-	// Wait for interrupt signal
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-
-	fmt.Println("\nBidirectional communication active. Press Ctrl+C to exit")
-
-	temperature := 20.0
-	for {
+	for i := 0; ; i++ {
 		select {
+		case <-ctx.Done():
+			return nil
 		case <-ticker.C:
-			// Simulate temperature sensor
-			temperature += 0.5
-			if temperature > 30.0 {
-				temperature = 20.0
+			if err := p.Set(20.0 + float64(i%20)*0.5); err != nil {
+				return err
 			}
-
-			client.SetValue(temperatureTopic, temperature)
-			client.SetValue(statusTopic, "OK")
-			fmt.Printf("[SENT] temperature=%.1f°C\n", temperature)
-
-		case <-sigChan:
-			fmt.Println("\nShutting down...")
-			return
+			if err := status.Set("OK"); err != nil {
+				return err
+			}
+		case ev, ok := <-sub.Events():
+			if !ok {
+				return nil
+			}
+			if ev.Kind == nt4.ValueReceived {
+				fmt.Printf("%s = %v\n", ev.Topic.Name, ev.Sample.Value)
+			}
 		}
+	}
+}
+func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	if err := run(ctx); err != nil {
+		log.Fatal(err)
 	}
 }

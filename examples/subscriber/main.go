@@ -4,70 +4,49 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os/signal"
+	"syscall"
 	"time"
 
-	"github.com/levifitzpatrick1/go-nt4"
+	nt4 "github.com/levifitzpatrick1/go-nt4"
 )
 
-func main() {
-	// Create client options for team 2064
-	// Use "127.0.0.1" for simulation or nt4.TeamNumberToAddress(2064) for real robot
-	opts := nt4.DefaultClientOptions("127.0.0.1") // Simulation
-	// opts := nt4.DefaultClientOptions(nt4.TeamNumberToAddress(2064)) // Real robot: 10.20.64.2
-
-	client := nt4.NewClient(opts)
-
-	// Connect with retry (30 second timeout)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	fmt.Println("Connecting to NT4 server...")
-	if err := client.ConnectWithRetry(ctx); err != nil {
-		log.Fatal("Failed to connect:", err)
+func run(ctx context.Context) error {
+	c, err := nt4.NewClient(nt4.ClientOptions{ServerAddress: "127.0.0.1"})
+	if err != nil {
+		return err
 	}
-	defer client.Disconnect()
-
-	fmt.Println("Connected! Subscribing to topics...")
-
-	// Subscribe to all /robot topics with prefix matching
-	sub := client.Subscribe([]string{"/robot"}, &nt4.SubscribeOptions{
-		Prefix: true,
-		All:    true,
-	})
-	defer client.Unsubscribe(sub)
-
-	// Print updates on a timer to avoid spam
+	defer c.Close()
+	s, err := c.Subscribe([]string{"/robot/"}, nt4.SubscriptionOptions{Prefix: true, BufferCapacity: 128, BufferMaxBytes: 1 << 20})
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+	if err := c.Start(ctx); err != nil {
+		return err
+	}
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
-
-	// Collect latest values
-	latestValues := make(map[string]any)
-
-	// Process updates in background
-	go func() {
-		for update := range sub.Updates() {
-			latestValues[update.Topic.Name] = update.Value
-		}
-	}()
-
-	// Print collected values every 2 seconds
-	fmt.Println("\nReceiving updates (printing every 2 seconds):")
 	for {
 		select {
-		case <-ticker.C:
-			if len(latestValues) == 0 {
-				fmt.Println("  No updates received yet...")
-				continue
-			}
-
-			fmt.Println("\n--- Latest Values ---")
-			for topic, value := range latestValues {
-				fmt.Printf("  %s = %v\n", topic, value)
-			}
-
 		case <-ctx.Done():
-			fmt.Println("\nShutting down...")
-			return
+			return nil
+		case ev, ok := <-s.Events():
+			if !ok {
+				return nil
+			}
+			fmt.Printf("event %d %s epoch %d timestamp %d\n", ev.Kind, ev.Topic.Name, ev.Epoch, ev.Sample.Timestamp)
+		case <-ticker.C:
+			if sample, ok := c.Latest("/robot/speed"); ok {
+				fmt.Printf("cached speed: %v (epoch %d, stale %v)\n", sample.Value, sample.Epoch, sample.Stale)
+			}
 		}
+	}
+}
+func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	if err := run(ctx); err != nil {
+		log.Fatal(err)
 	}
 }

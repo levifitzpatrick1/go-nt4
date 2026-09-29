@@ -1,1 +1,22 @@
+# Binaries
 *.exe
+*.dll
+*.so
+*.dylib
+*.test
+
+# Example binaries built in place by `go build`
+examples/publisher/publisher
+examples/subscriber/subscriber
+examples/subscriber_callback/subscriber_callback
+examples/bidirectional/bidirectional
+examples/team_robot/team_robot
+
+# Test and coverage output
+coverage.out
+coverage.html
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
