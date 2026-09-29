@@ -22,11 +22,15 @@ type Subscription struct {
 	bytes        int    // owner only, conservative between consumer receives
 	sizes        []int  // FIFO sizes of outstanding sends; owner reconciles with channel length
 	kinds        []EventKind
-	cbMu         sync.RWMutex
-	callback     func(topic *Topic, timestamp int64, value any)
-	updates      chan TopicUpdate
-	dispOnce     sync.Once
-	dispDone     chan struct{}
+	disp         *subDispatcher
+}
+
+type subDispatcher struct {
+	mu       sync.RWMutex
+	callback func(topic *Topic, timestamp int64, value any)
+	updates  chan TopicUpdate
+	once     sync.Once
+	done     chan struct{}
 }
 
 func (c *Client) Subscribe(patterns []string, o SubscriptionOptions) (*Subscription, error) {
@@ -67,7 +71,7 @@ func (c *Client) Subscribe(patterns []string, o SubscriptionOptions) (*Subscript
 		if err != nil {
 			return err
 		}
-		s = &Subscription{client: c, uid: id, patterns: patterns, opts: o, patternBytes: n, events: make(chan Event, o.BufferCapacity), errors: make(chan error, 1), active: true}
+		s = &Subscription{client: c, uid: id, patterns: patterns, opts: o, patternBytes: n, events: make(chan Event, o.BufferCapacity), errors: make(chan error, 1), active: true, disp: &subDispatcher{}}
 		e.subs[id] = s
 		e.subIDs = append(e.subIDs, id)
 		e.descriptorBytes += n
@@ -95,17 +99,22 @@ func (s *Subscription) Err() <-chan error {
 	return s.errors
 }
 
-func (s *Subscription) ensureDispatcher() {
-	s.dispOnce.Do(func() {
-		s.updates = make(chan TopicUpdate, s.opts.BufferCapacity)
-		s.dispDone = make(chan struct{})
+func (s *Subscription) ensureDispatcher() *subDispatcher {
+	if s.disp == nil {
+		s.disp = &subDispatcher{}
+	}
+	s.disp.once.Do(func() {
+		s.disp.updates = make(chan TopicUpdate, s.opts.BufferCapacity)
+		s.disp.done = make(chan struct{})
 		go s.dispatchLoop()
 	})
+	return s.disp
 }
 
 func (s *Subscription) dispatchLoop() {
-	defer close(s.dispDone)
-	defer close(s.updates)
+	disp := s.disp
+	defer close(disp.done)
+	defer close(disp.updates)
 	for ev := range s.events {
 		if ev.Kind != ValueReceived {
 			continue
@@ -122,16 +131,16 @@ func (s *Subscription) dispatchLoop() {
 			Value:     ev.Sample.Value,
 		}
 
-		s.cbMu.RLock()
-		cb := s.callback
-		s.cbMu.RUnlock()
+		disp.mu.RLock()
+		cb := disp.callback
+		disp.mu.RUnlock()
 
 		if cb != nil {
 			cb(top, ev.Sample.Timestamp, ev.Sample.Value)
 		}
 
 		select {
-		case s.updates <- up:
+		case disp.updates <- up:
 		default:
 		}
 	}
@@ -142,20 +151,20 @@ func (s *Subscription) SetCallback(callback func(topic *Topic, timestamp int64, 
 	if s == nil {
 		return
 	}
-	s.cbMu.Lock()
-	s.callback = callback
-	s.cbMu.Unlock()
-	s.ensureDispatcher()
+	disp := s.ensureDispatcher()
+	disp.mu.Lock()
+	disp.callback = callback
+	disp.mu.Unlock()
 }
 
 // GetCallback returns the currently registered callback, if any.
 func (s *Subscription) GetCallback() func(topic *Topic, timestamp int64, value any) {
-	if s == nil {
+	if s == nil || s.disp == nil {
 		return nil
 	}
-	s.cbMu.RLock()
-	defer s.cbMu.RUnlock()
-	return s.callback
+	s.disp.mu.RLock()
+	defer s.disp.mu.RUnlock()
+	return s.disp.callback
 }
 
 // Updates returns a channel delivering TopicUpdate values.
@@ -163,8 +172,8 @@ func (s *Subscription) Updates() <-chan TopicUpdate {
 	if s == nil {
 		return nil
 	}
-	s.ensureDispatcher()
-	return s.updates
+	disp := s.ensureDispatcher()
+	return disp.updates
 }
 func (s *Subscription) Dropped() uint64 {
 	if s == nil || s.client == nil {
