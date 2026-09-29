@@ -1,4 +1,5 @@
-// Package nt4 implements an NT4.1/4.0 reconnecting NetworkTables client with owned values,
-// bounded channel subscriptions, immediate cached reads, and robust reconnection.
-// Timestamps are signed server-relative microseconds scoped to a connection epoch.
+// Package nt4 provides a Go client for the NetworkTables 4 (NT4) protocol.
+//
+// NT4 is a WebSocket-based pub/sub protocol used in FIRST Robotics Competition (FRC)
+// for real-time data exchange between robots and control systems.
 package nt4
