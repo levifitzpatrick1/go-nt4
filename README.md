@@ -2,6 +2,9 @@
 
 [![CI](https://github.com/levifitzpatrick1/go-nt4/actions/workflows/ci.yaml/badge.svg)](https://github.com/levifitzpatrick1/go-nt4/actions/workflows/ci.yaml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/levifitzpatrick1/go-nt4.svg)](https://pkg.go.dev/github.com/levifitzpatrick1/go-nt4)
+[![Latest Release](https://img.shields.io/github/v/release/levifitzpatrick1/go-nt4?include_prereleases&color=007d9c)](https://github.com/levifitzpatrick1/go-nt4/releases)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/levifitzpatrick1/go-nt4)](go.mod)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 Go implementation of the WPILib NT4 protocol.
 
