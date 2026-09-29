@@ -13,7 +13,6 @@ const DefaultPort = 5810
 
 // Zero-valued limits select finite defaults. Negative limits and durations are invalid.
 type ClientOptions struct {
-
 	ServerAddress                                                                 string
 	Port                                                                          int
 	ClientName                                                                    string

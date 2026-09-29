@@ -84,9 +84,9 @@ func TestClientBuilder(t *testing.T) {
 		Team(2064).
 		Port(5811).
 		Name("custom-robot").
-		DialTimeout(3 * time.Second).
-		WriteTimeout(4 * time.Second).
-		ReadTimeout(15 * time.Second).
+		DialTimeout(3*time.Second).
+		WriteTimeout(4*time.Second).
+		ReadTimeout(15*time.Second).
 		Retry(100*time.Millisecond, 5*time.Second).
 		Keepalive(2 * time.Second)
 

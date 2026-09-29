@@ -40,7 +40,6 @@ const (
 
 type LifecycleState uint8
 
-
 const (
 	StateIdle LifecycleState = iota
 	StateDialing
@@ -155,4 +154,3 @@ type SubscribeOptions struct {
 	TopicsOnly bool
 	Prefix     bool
 }
-
